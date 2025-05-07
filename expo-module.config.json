@@ -1,0 +1,9 @@
+{
+	"platforms": ["apple", "android", "web"],
+	"apple": {
+		"modules": ["RfidModule"]
+	},
+	"android": {
+		"modules": ["expo.modules.rfid.RfidModule"]
+	}
+}
