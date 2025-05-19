@@ -8,11 +8,14 @@ import android.util.Log
 import androidx.core.os.bundleOf
 import com.rscja.deviceapi.RFIDWithUHFUART
 import com.rscja.deviceapi.entity.UHFTAGInfo
-// Commented out as it's not needed for now
-// import com.rscja.deviceapi.entity.InventoryModeEntity
 import com.rscja.deviceapi.interfaces.IUHFInventoryCallback
-import java.net.URL
+import android.view.KeyEvent
+import android.view.View
+import android.app.Activity
+import android.os.Bundle
+import android.content.Context
 import kotlin.random.Random
+import java.net.URL
 
 class RfidModule : Module() {
     private val TAG = "RfidModule"
@@ -22,6 +25,47 @@ class RfidModule : Module() {
     private var inventoryMode = "single" // 'single' or 'continuous'
     private var tagList = mutableListOf<UHFTAGInfo>()
 
+    // Static reference to the current module instance
+    companion object {
+        private var activeInstance: RfidModule? = null
+        private val TAG = "RfidModule_Static"
+        
+        // List of key codes we want to handle (same as in the old code)
+        private val TARGET_KEYCODES = arrayOf(139, 280, 291, 293, 294, 311, 312, 313, 315)
+        
+        /**
+         * Static method to handle key events from anywhere in the app
+         */
+        @JvmStatic
+        fun onKeyDown(keyCode: Int): Boolean {
+            
+            // Check if we have an active instance
+            val instance = activeInstance
+            if (instance != null) {
+                instance.handleKeyDown(keyCode)
+                return true
+            }
+            
+            return false
+        }
+
+        /**
+         * Static method to handle key events from anywhere in the app
+         */
+        @JvmStatic
+        fun onKeyUp(keyCode: Int): Boolean {
+            // Check if we have an active instance
+            val instance = activeInstance
+            if (instance != null) {
+                instance.handleKeyUp(keyCode)
+                return true
+            } else {
+            }
+            
+            return false
+        }
+    }
+
     // Safely access Bank constants with fallbacks
     private val bankEPC = try { RFIDWithUHFUART.Bank_EPC } catch (e: Exception) { 1 }
     private val bankTID = try { RFIDWithUHFUART.Bank_TID } catch (e: Exception) { 2 }
@@ -29,8 +73,20 @@ class RfidModule : Module() {
     private val bankRESERVED = try { bankEPC } catch (e: Exception) { 0 }
 
     override fun definition() = ModuleDefinition {
-        // Module name
         Name("Rfid")
+
+        // Register this module as active when created
+        OnCreate {
+            // Store reference to this instance in the companion object
+            activeInstance = this@RfidModule
+        }
+
+        OnDestroy {
+            // Clear the static reference when this module is destroyed
+            if (activeInstance == this@RfidModule) {
+                activeInstance = null
+            }
+        }
 
         // Constants
         Constants(
@@ -44,7 +100,19 @@ class RfidModule : Module() {
         )
 
         // Events
-        Events("onChange", "onTagRead", "onScanComplete", "onScanError")
+        Events("onChange", "onTagRead", "onScanComplete", "onScanError", "onHardwareButtonPress", "onHardwareButtonRelease")
+
+        // Function to handle key down events (new)
+        Function("handleKeyDown") { keyCode: Int ->
+            handleKeyDown(keyCode)
+            true
+        }
+
+        // Function to handle key up events (new)
+        Function("handleKeyUp") { keyCode: Int ->
+            handleKeyUp(keyCode)
+            true
+        }
 
         // Hello function (for testing connectivity)
         Function("hello") {
@@ -71,7 +139,6 @@ class RfidModule : Module() {
 
         // Start scanning
         AsyncFunction("startScan") {
-            println("HERE")
             val scannedTag = startScan()
             val result = if (scannedTag != null) {
                 // Convert UHFTAGInfo to a Map that can be returned to JavaScript
@@ -108,6 +175,54 @@ class RfidModule : Module() {
             }
             
             result
+        }
+
+        // Start batch scanning - returns multiple tags
+        AsyncFunction("startBatchScan") {
+            val result = startBatchScan()
+            
+            if (result.isNotEmpty()) {
+                // Convert list of tags to maps
+                val tagMaps = result.map { tag ->
+                    val rssi = try {
+                        tag.rssi.toDouble()
+                    } catch (e: Exception) {
+                        -50.0 // Default value if rssi is not a number
+                    }
+                    
+                    mapOf(
+                        "epc" to tag.epc,
+                        "tid" to tag.tid,
+                        "user" to tag.user,
+                        "pc" to tag.pc,
+                        "rssi" to rssi,
+                        "ant" to tag.ant,
+                        "reserved" to tag.reserved,
+                        "frequencyPoint" to tag.frequencyPoint,
+                        "remain" to tag.remain,
+                        "index" to tag.index,
+                        "count" to 1,
+                        "phase" to tag.phase,
+                        "timestamp" to System.currentTimeMillis()
+                    )
+                }
+                
+                mapOf(
+                    "success" to true,
+                    "tags" to tagMaps,
+                    "count" to tagMaps.size,
+                    "continuous" to true,
+                    "message" to "Batch scan started"
+                )
+            } else {
+                mapOf(
+                    "success" to false,
+                    "tags" to emptyList<Map<String, Any>>(),
+                    "count" to 0,
+                    "continuous" to true,
+                    "message" to if (isScanning) "Batch scan started, no tags found yet" else "No tags found in batch scan"
+                )
+            }
         }
 
         // Stop scanning
@@ -196,6 +311,60 @@ class RfidModule : Module() {
             // Defines an event that the view can send to JavaScript
             Events("onLoad")
         }
+    }
+
+    // ... inside RfidModule class
+    fun handleKeyDown(keyCode: Int) {
+        Log.d(TAG, "RFID MODULE handleKeyDown with keyCode: $keyCode")
+        
+        // Log key type based on code
+        val keyName = when (keyCode) {
+            139 -> "MENU key"
+            280 -> "FOCUS key"
+            291 -> "CAMERA key"
+            293 -> "CAMERA FOCUS key" 
+            294 -> "VOLUME DOWN key"
+            311 -> "TRIGGER key"
+            312 -> "DPAD CENTER key"
+            313 -> "TV POWER key"
+            315 -> "BACK key"
+            else -> "UNKNOWN key"
+        }
+        Log.d(TAG, "Received $keyName (code $keyCode)")
+        
+        // Send event to JavaScript
+        sendEvent("onHardwareButtonPress", mapOf(
+            "keyCode" to keyCode,
+            "keyName" to keyName,
+            "timestamp" to System.currentTimeMillis()
+        ))
+    }
+
+    fun handleKeyUp(keyCode: Int) {
+        Log.d(TAG, "RFID MODULE handleKeyDown with keyCode: $keyCode")
+        
+        // Log key type based on code
+        // THESE ARE LITERALLY JUST RANDOM NAMES FOR THE KEYS
+        val keyName = when (keyCode) {
+            139 -> "MENU key"
+            280 -> "FOCUS key"
+            291 -> "CAMERA key"
+            293 -> "CAMERA FOCUS key" 
+            294 -> "VOLUME DOWN key"
+            311 -> "TRIGGER key"
+            312 -> "DPAD CENTER key"
+            313 -> "TV POWER key"
+            315 -> "BACK key"
+            else -> "UNKNOWN key"
+        }
+        Log.d(TAG, "Received $keyName (code $keyCode)")
+        
+        // Send event to JavaScript
+        sendEvent("onHardwareButtonRelease", mapOf(
+            "keyCode" to keyCode,
+            "keyName" to keyName,
+            "timestamp" to System.currentTimeMillis()
+        ))
     }
 
     // Initialize RFID reader
@@ -352,20 +521,36 @@ class RfidModule : Module() {
     // Stop scanning
     private fun stopScan(): Boolean {
         return try {
-            if (mReader != null && isScanning) {
-                mReader?.stopInventory()
-                sendEvent("onScanComplete", mapOf(
-                    "totalTags" to tagList.size,
-                    "timeTaken" to 0,
-                    "success" to true
-                ))
+            if (mReader != null) {
+                if (isScanning) {
+                    // Stop inventory for both single and batch mode
+                    mReader?.stopInventory()
+                    
+                    // Send event for batch mode completion
+                    if (inventoryMode == "batch") {
+                        val foundTags = tagList.size
+                        sendEvent("onScanComplete", mapOf(
+                            "totalTags" to foundTags,
+                            "timeTaken" to 0, // We don't know exact duration for interrupted scans
+                            "success" to true,
+                            "batchMode" to true,
+                            "continuous" to true,
+                            "stopped" to true
+                        ))
+                    }
+                }
+                isScanning = false
+                loopFlag = false
+                true
+            } else {
+                isScanning = false
+                loopFlag = false
+                false
             }
-            isScanning = false
-            loopFlag = false
-            true
         } catch (e: Exception) {
             Log.e(TAG, "Stop scan error: ${e.message}")
             isScanning = false
+            loopFlag = false
             false
         }
     }
@@ -726,6 +911,118 @@ class RfidModule : Module() {
                 "message" to (e.message ?: "Unknown error during write"),
                 "logs" to logs
             )
+        }
+    }
+
+    // Start batch scan for multiple tags
+    private fun startBatchScan(): List<UHFTAGInfo> {
+        try {
+            // Make sure reader is initialized
+            if (mReader == null) {
+                if (!initReader()) {
+                    sendEvent("onScanError", mapOf(
+                        "code" to "READER_INIT_FAILED",
+                        "message" to "Failed to initialize RFID reader"
+                    ))
+                    return emptyList()
+                }
+            }
+
+            if (isScanning) {
+                stopScan()
+            }
+
+            // Clear tag list and prepare for batch scan
+            inventoryMode = "batch"
+            isScanning = true
+            tagList.clear()
+            loopFlag = true
+
+            // Set up inventory callback to collect tags
+            mReader?.setInventoryCallback(object : IUHFInventoryCallback {
+                override fun callback(info: UHFTAGInfo) {
+                    if (info != null) {
+                        // Add to tag list if not already present by EPC
+                        val existingTag = tagList.find { it.epc == info.epc }
+                        if (existingTag == null) {
+                            tagList.add(info)
+                            
+                            // Send event for each new tag
+                            val rssi = try {
+                                info.rssi.toDouble()
+                            } catch (e: Exception) {
+                                -50.0 // Default value if rssi is not a number
+                            }
+                            
+                            sendEvent("onTagRead", mapOf(
+                                "tag" to mapOf(
+                                    "epc" to info.epc,
+                                    "tid" to info.tid,
+                                    "user" to info.user,
+                                    "pc" to info.pc,
+                                    "rssi" to rssi,
+                                    "ant" to info.ant,
+                                    "reserved" to info.reserved,
+                                    "frequencyPoint" to info.frequencyPoint,
+                                    "remain" to info.remain,
+                                    "index" to info.index,
+                                    "count" to 1,
+                                    "phase" to info.phase,
+                                    "timestamp" to System.currentTimeMillis(),
+                                ),
+                                "batchMode" to true
+                            ))
+                        }
+                    }
+                }
+            })
+
+            // Start the inventory in a background thread
+            Thread {
+                try {
+                    // Start continuous inventory
+                    mReader?.startInventoryTag()
+                    
+                    // Continuous mode - send initial event that scanning has started
+                    sendEvent("onScanComplete", mapOf(
+                        "totalTags" to 0,
+                        "timeTaken" to 0,
+                        "success" to true,
+                        "batchMode" to true,
+                        "continuous" to true
+                    ))
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error during batch scan: ${e.message}")
+                    isScanning = false
+                    loopFlag = false
+                    
+                    sendEvent("onScanError", mapOf(
+                        "code" to "BATCH_SCAN_ERROR",
+                        "message" to (e.message ?: "Unknown error during batch scan"),
+                        "batchMode" to true,
+                        "continuous" to true
+                    ))
+                }
+            }.start()
+            
+            // Small delay to potentially catch some initial tags
+            Thread.sleep(500)
+            
+            // Return a copy of the tag list
+            return tagList.toList()
+        } catch (e: Exception) {
+            Log.e(TAG, "Start batch scan error: ${e.message}")
+            isScanning = false
+            loopFlag = false
+            
+            sendEvent("onScanError", mapOf(
+                "code" to "BATCH_SCAN_EXCEPTION",
+                "message" to (e.message ?: "Unknown error during batch scan"),
+                "batchMode" to true,
+                "continuous" to true
+            ))
+            
+            return emptyList()
         }
     }
 }

@@ -29,17 +29,22 @@ export type FilterBank = "EPC" | "TID" | "USER" | "RESERVED";
 
 export interface TagReadPayload {
 	tag: TagInfo;
+	batchMode?: boolean;
 }
 
 export interface ScanCompletePayload {
 	totalTags: number;
 	timeTaken: number;
 	success: boolean;
+	batchMode?: boolean;
+	continuous?: boolean;
+	stopped?: boolean;
 }
 
 export interface ScanErrorPayload {
 	code: string;
 	message: string;
+	batchMode?: boolean;
 }
 
 // Using a Record type with proper intersection for EventsMap constraint
@@ -47,7 +52,15 @@ export type RfidModuleEvents = {
 	onTagRead: (event: TagReadPayload) => void;
 	onScanComplete: (event: ScanCompletePayload) => void;
 	onScanError: (event: ScanErrorPayload) => void;
+	onHardwareButtonPress: (event: HardwareButtonPayload) => void;
+	onHardwareButtonRelease: (event: HardwareButtonPayload) => void;
 } & Record<string, (event: Record<string, unknown>) => void>;
+
+export interface HardwareButtonPayload {
+	keyCode: number;
+	keyName: string;
+	timestamp: number;
+}
 
 export interface FilterParams {
 	bank: FilterBank;
@@ -76,6 +89,13 @@ export interface WriteTagResult {
 export interface OperationResult {
 	success: boolean;
 	message: string;
+}
+
+// New interface for batch scan results
+export interface BatchScanResult extends OperationResult {
+	tags: TagInfo[];
+	count: number;
+	continuous: boolean;
 }
 
 export type RfidViewProps = {

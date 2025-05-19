@@ -1,6 +1,7 @@
 import { NativeModule, requireNativeModule } from "expo";
 
 import type {
+	BatchScanResult,
 	FilterBank,
 	OperationResult,
 	ReadTagResult,
@@ -45,6 +46,12 @@ declare class RfidModule extends NativeModule<RfidModuleEvents> {
 	startScan(): Promise<TagInfo>;
 
 	/**
+	 * Start scanning for RFID tags - batch scan mode
+	 * @param duration - Duration in milliseconds to scan for (default: 3000ms)
+	 */
+	startBatchScan(): Promise<BatchScanResult>;
+
+	/**
 	 * Set a filter for tag operations to target specific tags
 	 * @param bank - Memory bank to filter on
 	 * @param ptr - Offset to start filtering from
@@ -85,6 +92,18 @@ declare class RfidModule extends NativeModule<RfidModuleEvents> {
 		data: string,
 		password: string,
 	): Promise<WriteTagResult>;
+	
+	/**
+	 * Handle a key down event from hardware buttons
+	 * @param keyCode - The key code of the button pressed
+	 */
+	handleKeyDown(keyCode: number): boolean;
+
+	/**
+	 * Handle a key up event from hardware buttons
+	 * @param keyCode - The key code of the button released
+	 */
+	handleKeyUp(keyCode: number): boolean;
 }
 
 // Load the native module from the JSI
